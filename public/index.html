@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自作問題倉庫</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <nav>
+        <div class="nav-container">
+            <h1>自作問題倉庫</h1>
+            <button class="nav-toggle">☰</button>
+            <ul class="nav-menu">
+                <li><a href="/">ホーム</a></li>
+                <li><a href="/contests">コンテスト</a></li>
+                <li><a href="/problems">PROBLEMS</a></li>
+                <li><a href="/login">ログイン</a></li>
+                <li><a href="/register">新規登録</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <section class="hero" style="text-align: center;">
+            <h2>自作問題倉庫へようこそ！</h2>
+            <p>自作問題倉庫は、tomorunnの自作問題の倉庫です。(進次郎)</p>
+            <button onclick="window.location.href='/contests'" style="background-color: #2980b9; color: #fff; padding: 1rem 2rem; border: none; border-radius: 6px; cursor: pointer; font-size: 1.25rem;">今すぐ参加</button>
+        </section>
+    </main>
+
+    <footer>
+        <p>© 2025 tomorunn. All rights reserved.</p>
+    </footer>
+
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                packages: {'[+]': ['noerrors', 'noundefined', 'align', 'flalign']},
+                displayAlign: 'left'
+            },
+            loader: {load: ['[tex]/noerrors', '[tex]/noundefined', '[tex]/align', '[tex]/flalign']},
+            startup: {
+                ready: () => {
+                    MathJax.startup.defaultReady();
+                    MathJax.startup.promise.then(() => {
+                        console.log('MathJax is loaded and initialized');
+                        MathJax.typesetPromise();
+                    });
+                }
+            }
+        };
+
+        // ナビゲーショントグル用のスクリプト
+        document.querySelector('.nav-toggle').addEventListener('click', () => {
+            document.querySelector('.nav-menu').classList.toggle('active');
+        });
+    </script>
+</body>
+</html>

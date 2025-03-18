@@ -1,0 +1,312 @@
+/* 全体の設定 */
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+    color: #333;
+    line-height: 1.8;
+    font-size: 18px;
+}
+
+/* 見出しを大きく */
+h1, h2, h3 {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+h1 {
+    font-size: 2.5rem;
+}
+
+h2 {
+    font-size: 2rem;
+}
+
+h3 {
+    font-size: 1.75rem;
+}
+
+a {
+    color: #2980b9;
+    text-decoration: none;
+    transition: color 0.3s ease;
+    font-size: 1.1rem;
+}
+
+a:hover {
+    color: #1a5276;
+    text-decoration: underline;
+}
+
+/* ナビゲーション */
+nav {
+    background-color: #2c3e50;
+    padding: 1.5rem;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.nav-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+}
+
+.nav-container h1 {
+    color: #fff;
+    margin: 0;
+    font-size: 2rem;
+}
+
+.nav-toggle {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 2rem;
+    color: #fff;
+    cursor: pointer;
+    padding: 0;
+}
+
+.nav-menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    gap: 2rem;
+}
+
+.nav-menu li.username {
+    color: #fff;
+    font-size: 1.25rem;
+}
+
+.nav-menu li a {
+    color: #fff;
+    font-size: 1.25rem;
+}
+
+.nav-menu li a:hover {
+    color: #ecf0f1;
+}
+
+/* モバイル対応 */
+@media (max-width: 768px) {
+    .nav-toggle {
+        display: block; /* モバイルで表示 */
+    }
+
+    .nav-menu {
+        display: none; /* モバイルではデフォルト非表示 */
+        flex-direction: column;
+        position: fixed; /* ビューポート全体に依存 */
+        top: calc(3rem + 1.5rem); /* ナビゲーションの高さ（約3rem） + padding分 */
+        left: 0; /* 左端から開始 */
+        right: 0; /* 右端まで */
+        width: 100vw; /* ビューポートの100% */
+        background-color: #2c3e50;
+        padding: 1rem;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        box-sizing: border-box; /* paddingを含めた幅計算 */
+        overflow-x: hidden; /* 横スクロールを防ぐ */
+    }
+
+    .nav-menu.active {
+        display: flex; /* トグルで表示 */
+    }
+
+    .nav-menu li {
+        margin: 1rem 0;
+    }
+
+    .nav-menu li a {
+        font-size: 1.25rem;
+        white-space: nowrap; /* テキストが見切れないように折り返しを防ぐ */
+        overflow: hidden; /* 見切れ防止 */
+        text-overflow: ellipsis; /* 長いテキストは省略記号で表示 */
+        padding: 0 1rem; /* 左右に余白を追加して文字を自然に配置 */
+    }
+}
+
+@media (min-width: 769px) {
+    .nav-toggle {
+        display: none !important; /* PCでは確実に非表示 */
+    }
+
+    .nav-menu {
+        display: flex !important; /* PCでは常に表示 */
+    }
+}
+
+/* メインコンテンツ */
+main {
+    max-width: 1400px;
+    margin: 3rem auto;
+    padding: 0 1.5rem;
+}
+
+.hero {
+    background-color: #fff;
+    padding: 3rem;
+    border-radius: 10px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.hero h2 {
+    margin-top: 0;
+}
+
+/* タブ */
+.tabs {
+    margin: 1.5rem 0;
+    display: flex;
+    gap: 1.5rem;
+}
+
+.tab {
+    padding: 0.75rem 1.5rem;
+    background-color: #ecf0f1;
+    border-radius: 6px;
+    color: #2c3e50;
+    text-decoration: none;
+    font-size: 1.25rem;
+}
+
+.tab.active {
+    background-color: #2980b9;
+    color: #fff;
+}
+
+.tab:hover {
+    background-color: #bdc3c7;
+}
+
+/* テーブル */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    background-color: #fff;
+}
+
+th, td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    font-size: 1.1rem;
+}
+
+th {
+    background-color: #2c3e50;
+    color: #fff;
+}
+
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+tr:hover {
+    background-color: #ecf0f1;
+}
+
+/* フォーム */
+.form-container, .problem-section {
+    background-color: #fff;
+    padding: 3rem;
+    border-radius: 10px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+form label {
+    display: block;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+    font-size: 1.25rem;
+}
+
+form input[type="text"],
+form input[type="password"],
+form input[type="number"],
+form textarea {
+    width: 100%;
+    padding: 0.75rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 1.1rem;
+}
+
+form textarea {
+    height: 200px;
+    resize: vertical;
+}
+
+form button {
+    background-color: #2980b9;
+    color: #fff;
+    padding: 1rem 2rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    font-size: 1.25rem;
+}
+
+form button:hover {
+    background-color: #1a5276;
+}
+
+/* 問題表示 */
+.problem-display {
+    margin-bottom: 2rem;
+}
+
+.problem-display img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+}
+
+.math-tex {
+    display: block !important;
+    text-align: left !important;
+    font-size: 1.25rem;
+}
+
+/* リスト */
+ul.contest-list, ul.problem-list-horizontal {
+    list-style: none;
+    padding: 0;
+}
+
+ul.contest-list li {
+    background-color: #fff;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-radius: 6px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+ul.problem-list-horizontal li {
+    display: inline-block;
+    margin-right: 1.5rem;
+    padding: 0.75rem;
+    background-color: #ecf0f1;
+    border-radius: 6px;
+    font-size: 1.1rem;
+}
+
+/* フッター */
+footer {
+    text-align: center;
+    padding: 1.5rem;
+    background-color: #2c3e50;
+    color: #fff;
+    margin-top: 3rem;
+    font-size: 1.1rem;
+}
