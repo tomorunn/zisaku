@@ -390,12 +390,8 @@ const getUserFromCookie = async (req) => {
 
 // コンテスト管理権限のチェック関数
 const canManageContest = (user, contest) => {
-    if (!user || !user.username) return false;
-    if (user.isAdmin) return true;
-    const isManager = contest.managers && contest.managers.includes(user.username);
-    const isWriter = contest.writers && contest.writers.includes(user.username);
-    const isTester = contest.testers && contest.testers.includes(user.username);
-    return isManager || isWriter || isTester;
+    if (!user || !user.isAdmin) return false; // 管理者以外は常にfalse
+    return true; // 管理者は常にtrue
 };
 
 // コンテストが終了していないかをチェックする関数
@@ -578,11 +574,11 @@ app.get('/admin', async (req, res) => {
     }
 });
 
-// ルート：コンテスト追加（一般ユーザー対応）
+// ルート：コンテスト追加（一般ユーザー対応を削除）
 app.get('/contests/add-contest', async (req, res) => {
     try {
         const user = await getUserFromCookie(req);
-        if (!user) return res.redirect('/login'); // ログイン必須だが管理者権限は不要
+        if (!user || !user.isAdmin) return res.redirect('/login'); // 管理者以外はアクセス不可
         const nav = generateNav(user);
         const content = `
             <section class="form-container">
@@ -618,7 +614,7 @@ app.get('/contests/add-contest', async (req, res) => {
 app.post('/contests/add-contest', async (req, res) => {
     try {
         const user = await getUserFromCookie(req);
-        if (!user) return res.redirect('/login'); // ログイン必須だが管理者権限は不要
+        if (!user || !user.isAdmin) return res.redirect('/login'); // 管理者以外はアクセス不可
         const { title, description, startTime, endTime, problemCount, submissionLimit } = req.body;
         const contests = await loadContests();
         const numProblems = parseInt(problemCount);
@@ -674,7 +670,7 @@ app.get('/contests', async (req, res) => {
                 <h2>コンテスト一覧</h2>
                 <p>参加可能なコンテストをチェック！</p>
                 ${
-                    user
+                    user && user.isAdmin
                         ? '<p><a href="/contests/add-contest">新しいコンテストを作成</a></p>'
                         : ''
                 }
@@ -697,7 +693,7 @@ app.get('/contests', async (req, res) => {
                                                 status === '準備中' ? 'disabled' : ''
                                             }>${status === '開催中' ? '参加' : '参加'}</button>
                                             ${
-                                                canManageContest(user, contest)
+                                                user && user.isAdmin
                                                     ? `<a href="/admin/contest-details/${originalIndex}">管理</a>`
                                                     : ''
                                             }
