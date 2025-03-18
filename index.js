@@ -574,8 +574,8 @@ app.get('/admin', async (req, res) => {
     }
 });
 
-// ルート：コンテスト追加（一般ユーザー対応を削除）
-app.get('/contests/add-contest', async (req, res) => {
+// ルート：コンテスト追加（管理者専用）
+app.get('/admin/add-contest', async (req, res) => {
     try {
         const user = await getUserFromCookie(req);
         if (!user || !user.isAdmin) return res.redirect('/login'); // 管理者以外はアクセス不可
@@ -583,7 +583,7 @@ app.get('/contests/add-contest', async (req, res) => {
         const content = `
             <section class="form-container">
                 <h2>新しいコンテストの作成</h2>
-                <form method="POST" action="/contests/add-contest">
+                <form method="POST" action="/admin/add-contest">
                     <label>コンテスト名:</label><br>
                     <input type="text" name="title" placeholder="コンテスト名" required><br>
                     <label>説明:</label><br>
@@ -601,7 +601,7 @@ app.get('/contests/add-contest', async (req, res) => {
                     </select><br>
                     <button type="submit">コンテストを作成</button>
                 </form>
-                <p><a href="/contests">コンテスト一覧に戻る</a></p>
+                <p><a href="/admin">管理者ダッシュボードに戻る</a></p>
             </section>
         `;
         res.send(generatePage(nav, content, false));
@@ -611,7 +611,7 @@ app.get('/contests/add-contest', async (req, res) => {
     }
 });
 
-app.post('/contests/add-contest', async (req, res) => {
+app.post('/admin/add-contest', async (req, res) => {
     try {
         const user = await getUserFromCookie(req);
         if (!user || !user.isAdmin) return res.redirect('/login'); // 管理者以外はアクセス不可
@@ -647,7 +647,7 @@ app.post('/contests/add-contest', async (req, res) => {
             submissionLimit: parseInt(submissionLimit) || 10,
         });
         await saveContests(contests);
-        res.redirect('/contests');
+        res.redirect('/admin');
     } catch (err) {
         console.error('コンテスト追加処理エラー:', err);
         res.status(500).send("サーバーエラーが発生しました");
