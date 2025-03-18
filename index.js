@@ -574,6 +574,7 @@ app.get('/admin', async (req, res) => {
     }
 });
 
+
 // ルート：コンテスト追加（管理者専用）
 app.get('/admin/add-contest', async (req, res) => {
     try {
@@ -2478,7 +2479,7 @@ app.post('/admin/problem/:contestId/:problemId/remove-image', async (req, res) =
 
 // （他のルートはそのまま）
 
-// ルート：ユーザー管理ページ
+// ユーザー管理ページの修正（app.get('/admin/users', ...) 内）
 app.get('/admin/users', async (req, res) => {
     try {
         const user = await getUserFromCookie(req);
@@ -2489,7 +2490,7 @@ app.get('/admin/users', async (req, res) => {
             <section class="hero">
                 <h2>ユーザー管理</h2>
                 <table class="user-table">
-                    <tr><th>ユーザー名</th><th>管理者権限</th><th>操作</th></tr>
+                    <tr><th>ユーザー名</th><th>管理者権限</th><th>操作</th><th>パスワード変更</th></tr>
                     ${users
                         .map((u, index) => `
                             <tr>
@@ -2509,6 +2510,13 @@ app.get('/admin/users', async (req, res) => {
                                             : ''
                                     }
                                 </td>
+                                <td>
+                                    <form action="/admin/change-password" method="POST" style="display:inline;">
+                                        <input type="hidden" name="index" value="${index}">
+                                        <input type="password" name="newPassword" placeholder="新しいパスワード" required>
+                                        <button type="submit">変更</button>
+                                    </form>
+                                </td>
                             </tr>
                         `)
                         .join('')}
@@ -2519,6 +2527,25 @@ app.get('/admin/users', async (req, res) => {
         res.send(generatePage(nav, content));
     } catch (err) {
         console.error('ユーザー管理ページエラー:', err);
+        res.status(500).send("サーバーエラーが発生しました");
+    }
+});
+
+// パスワード変更処理の追加
+app.post('/admin/change-password', async (req, res) => {
+    try {
+        const user = await getUserFromCookie(req);
+        if (!user || !user.isAdmin) return res.redirect('/login');
+        const { index, newPassword } = req.body;
+        const users = await loadUsers();
+        const idx = parseInt(index);
+        if (idx >= 0 && idx < users.length) {
+            users[idx].password = newPassword;
+            await saveUsers(users);
+        }
+        res.redirect('/admin/users');
+    } catch (err) {
+        console.error('パスワード変更エラー:', err);
         res.status(500).send("サーバーエラーが発生しました");
     }
 });
