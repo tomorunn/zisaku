@@ -84,7 +84,7 @@ const generatePage = (user, content) => `
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
-        <title>試作品</title>
+        <title>Study Gamification</title>
         <link rel="stylesheet" href="/style.css">
         <style>
             .ca { background-color: #d4edda; color: #155724; font-weight: bold; }
@@ -199,12 +199,12 @@ app.get('/set/:index', async (req, res) => {
         // 表示は label を優先、なければ id
         const displayLabel = String(prob.label || prob.id || '');
         const sub = (user && user.submissions || []).find(s => s.setId === String(set._id) && s.probId == prob.id);
+        // 背景色で判定を示す: CA -> 緑 (class "ca"), WA -> 赤 (class "wa")
         const resultClass = sub ? (sub.result === 'CA' ? 'ca' : 'wa') : '';
-        const resultLabel = sub ? sub.result : displayLabel;
 
         content += `
             <div class="status-box ${resultClass}" onclick="location.href='/submit/${idx}/${encodeURIComponent(prob.id)}'" style="cursor:pointer" title="${escapeHtml(displayLabel)}">
-                ${escapeHtml(resultLabel)}
+                ${escapeHtml(displayLabel)}
             </div>
         `;
     });
@@ -263,8 +263,11 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
       const a = Number(aStr);
       const b = Number(bStr);
       if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-      const EPS = 1e-9;
-      return Math.abs(a - b) <= EPS;
+      // 有効数字を気にしない比較: 絶対誤差と相対誤差の両方で判定する
+      const absEPS = 1e-9; // 絶対誤差の下限
+      const relEPS = 1e-6; // 相対誤差の許容割合（必要に応じて調整してください）
+      const tol = Math.max(absEPS, relEPS * Math.max(Math.abs(a), Math.abs(b)));
+      return Math.abs(a - b) <= tol;
     };
 
     const normalizeLower = s => normalizeStr(s).toLowerCase();
