@@ -34,11 +34,11 @@ app.use(async (req, res, next) => {
   catch (err) {
     console.error("=== DB接続エラーの詳細 ===");
     console.error(err);
-    res.status(503).send("DB接続エラーが発生しました。");
+    res.status(503).send("DB接続エラー (詳細はサーバーコンソールを確認してください)");
   }
 });
 
-// --- データ操作関数 ---
+// --- データ操作関数（すべて復元） ---
 const loadSets = async () => {
     const col = db.collection('problem_sets');
     return await col.find({}).toArray();
@@ -59,6 +59,18 @@ const saveSet = async (set) => {
         await col.insertOne(set);
     }
 };
+
+const loadUsers = async () => {
+    return await db.collection('users').find({}).toArray();
+};
+
+function isValidObjectIdString(s) {
+    try {
+        return ObjectId.isValid(String(s));
+    } catch {
+        return false;
+    }
+}
 
 // --- HTML生成（共通パーツ） ---
 const generatePage = (user, content) => `
@@ -119,6 +131,7 @@ app.get('/logout', (req, res) => {
 
 // --- ルート設定 ---
 
+// 1. 問題集一覧
 app.get('/', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
@@ -153,6 +166,7 @@ app.get('/', async (req, res) => {
     res.send(generatePage(user, content));
 });
 
+// 2. 問題選択ページ
 app.get('/set/:index', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
@@ -180,6 +194,7 @@ app.get('/set/:index', async (req, res) => {
     res.send(generatePage(user, content));
 });
 
+// 3. 判定ロジック
 app.get('/submit/:setIdx/:probId', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
@@ -249,7 +264,7 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
   }
 });
 
-// --- 管理画面 ---
+// --- 管理画面（全機能復元） ---
 app.get('/admin', async (req, res) => {
     const sets = await loadSets();
     let content = `
@@ -285,24 +300,60 @@ app.post('/admin/add-set', async (req, res) => {
     res.redirect('/admin');
 });
 
+// 問題集の個別編集ページ
 app.get('/admin/edit/:index', async (req, res) => {
     const sets = await loadSets();
     const idx = Number(req.params.index);
+    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
+
     let content = `<h2>${escapeHtml(set.title)} の編集</h2>`;
     content += `<form method="POST" action="/admin/edit/${idx}">`;
     (set.problems || []).forEach((p, i) => {
         content += `
           <div class="admin-row">
-            ID: ${p.id} | 
+            <strong>ID: ${escapeHtml(String(p.id))}</strong> | 
             表示名: <input type="text" name="label_${i}" value="${escapeHtml(p.label)}" style="width:120px; display:inline;">
             正解: <input type="text" name="ans_${i}" value="${escapeHtml(p.correctAnswer)}" style="width:180px; display:inline;">
           </div>
         `;
     });
-    content += `<button type="submit" style="width:100%; margin-top:20px;">変更を保存</button></form>
-    <p><a href="/admin">戻る</a></p>`;
+    content += `<button type="submit" style="width:100%; margin:20px 0;">変更を保存</button></form>`;
+
+    // 問題の追加フォーム
+    content += `
+      <hr>
+      <div class="set-card" style="background:#f9f9f9;">
+          <h3>問題を追加</h3>
+          <form method="POST" action="/admin/add-problem/${idx}">
+            <label>追加する問題数: <input type="number" name="addCount" value="1" min="1" required style="width:80px; display:inline;"></label>
+            <button type="submit">追加実行</button>
+          </form>
+      </div>
+      <p><a href="/admin">管理者TOPに戻る</a></p>`;
     res.send(generatePage(null, content));
+});
+
+// ★復元: 問題追加処理
+app.post('/admin/add-problem/:index', async (req, res) => {
+    const sets = await loadSets();
+    const idx = Number(req.params.index);
+    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send("問題集が見つかりません。");
+    const set = sets[idx];
+
+    const addCount = Math.max(1, Number(req.body.addCount) || 0);
+    const existingIds = (set.problems || []).map(p => String(p.id));
+    const numericIds = existingIds.map(id => { const n = Number(id); return Number.isFinite(n) && Number.isInteger(n) ? n : null; }).filter(x => x !== null);
+    
+    let nextNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : (set.problems || []).length + 1;
+
+    for (let i = 0; i < addCount; i++) {
+        const newId = String(nextNum + i);
+        (set.problems = set.problems || []).push({ id: newId, label: `問${newId}`, correctAnswer: "" });
+    }
+
+    await saveSet(set);
+    res.redirect(`/admin/edit/${idx}`);
 });
 
 app.post('/admin/edit/:index', async (req, res) => {
@@ -310,7 +361,7 @@ app.post('/admin/edit/:index', async (req, res) => {
     const idx = Number(req.params.index);
     const set = sets[idx];
     (set.problems || []).forEach((p, i) => {
-        p.label = req.body[`label_${i}`] || p.label;
+        p.label = req.body[`label_${i}`] || p.label || String(p.id);
         p.correctAnswer = req.body[`ans_${i}`] || "";
     });
     await saveSet(set);
