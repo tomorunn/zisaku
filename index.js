@@ -228,13 +228,14 @@ app.get('/submit/:setIdx/:probId', async (req, res) => {
     `));
 });
 
-// POST: 判定処理
+// POST: 判定処理（堅牢版）
 app.post('/submit/:setIdx/:probId', async (req, res) => {
+  try {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
 
     const { setIdx, probId } = req.params;
-    const answer = (req.body.answer || '').toString();
+    const rawAnswer = (req.body.answer || '').toString();
 
     const sets = await loadSets();
     const idx = Number(setIdx);
@@ -243,39 +244,70 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
     const problem = (set.problems || []).find(p => p.id == probId);
     if (!problem) return res.status(404).send(generatePage(null, `<p>問題が見つかりません。</p>`));
 
-    // 判定 (簡易ノーマライズ: trim + lowercase)
-    const normalize = s => (s || '').toString().trim().toLowerCase();
-    const isCorrect = normalize(answer) === normalize(problem.correctAnswer);
+    // ノーマライズ関数: 文字列比較の前に数値かどうかをチェックして数値比較をする
+    const normalizeStr = s => (s || '').toString().trim();
+    const isNumericString = s => {
+      // 整数、小数、指数表記、先頭の +/- を許可
+      return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(String(s).trim());
+    };
+
+    const numericEqual = (aStr, bStr) => {
+      const a = Number(aStr);
+      const b = Number(bStr);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+      // 許容誤差（浮動小数点の比較）: 必要に応じて調整
+      const EPS = 1e-9;
+      return Math.abs(a - b) <= EPS;
+    };
+
+    const normalizeLower = s => normalizeStr(s).toLowerCase();
+
+    // 判定ロジック: 両方が「数値らしい」なら数値比較、それ以外は小文字の文字列比較
+    let isCorrect = false;
+    const expected = problem.correctAnswer || "";
+    const given = rawAnswer;
+
+    if (isNumericString(expected) && isNumericString(given)) {
+      isCorrect = numericEqual(expected, given);
+    } else {
+      // 非数値は trim + lowercase 比較（空白や大文字小文字を無視）
+      isCorrect = normalizeLower(expected) === normalizeLower(given);
+    }
 
     const result = isCorrect ? 'CA' : 'WA';
     const col = db.collection('users');
 
     // ensure user exists
     await col.updateOne(
-        { username },
-        { $setOnInsert: { username, submissions: [] } },
-        { upsert: true }
+      { username },
+      { $setOnInsert: { username, submissions: [] } },
+      { upsert: true }
     );
 
-    // remove old submission for same problem & set, then push new
+    // remove old submission for same problem & set, then push new (and store rawAnswer for debugging)
     const setIdStr = String(set._id);
     await col.updateOne(
-        { username },
-        { $pull: { submissions: { setId: setIdStr, probId: probId } } }
+      { username },
+      { $pull: { submissions: { setId: setIdStr, probId: probId } } }
     );
     await col.updateOne(
-        { username },
-        { $push: { submissions: { setId: setIdStr, probId: probId, result, date: new Date() } } }
+      { username },
+      { $push: { submissions: { setId: setIdStr, probId: probId, result, answer: String(rawAnswer), date: new Date() } } }
     );
 
     const color = result === 'CA' ? 'green' : 'red';
     res.send(generatePage({username}, `
         <h1 style="color: ${color}">${result}</h1>
-        <p>回答: ${escapeHtml(answer)}</p>
-        <p>正解: ${escapeHtml(problem.correctAnswer || '(未設定)')}</p>
+        <p>回答: ${escapeHtml(rawAnswer)}</p>
+        <p>正解: ${escapeHtml(expected || '(未設定)')}</p>
         <a href="/set/${idx}">問題一覧に戻る</a>
     `));
+  } catch (err) {
+    console.error('POST /submit error:', err);
+    res.status(500).send(generatePage(null, `<p>内部エラーが発生しました。サーバーログを確認してください。</p>`));
+  }
 });
+
 
 // 4. 解答設定ページ（管理者向け、簡易）
 app.get('/admin', async (req, res) => {
