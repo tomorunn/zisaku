@@ -84,7 +84,7 @@ const generatePage = (user, content) => `
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
-        <title>Study Gamification</title>
+        <title>試作品</title>
         <link rel="stylesheet" href="/style.css">
         <style>
             .ca { background-color: #d4edda; color: #155724; font-weight: bold; }
