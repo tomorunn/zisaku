@@ -1,4 +1,3 @@
-// app.js (修正版)
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
@@ -45,15 +44,23 @@ app.use(async (req, res, next) => {
 const loadSets = async () => {
     const col = db.collection('problem_sets');
     const sets = await col.find({}).toArray();
-    // 注意: _id は ObjectId のままにしておく（必要なら toString() を使う）
+    // 注意: _id は ObjectId のままにしておく
     return sets;
 };
 
 const saveSet = async (set) => {
     const col = db.collection('problem_sets');
     if (set._id) {
+        // 正しく ObjectId に変換して更新する
+        const idStr = typeof set._id === 'string' ? set._id : String(set._id);
+        const oid = ObjectId.isValid(idStr) ? new ObjectId(idStr) : null;
         const { _id, ...updateData } = set;
-        await col.updateOne({ _id: ObjectId(isValidObjectIdString(_id) ? _id : _id.toString()) }, { $set: updateData });
+        if (oid) {
+            await col.updateOne({ _id: oid }, { $set: updateData });
+        } else {
+            // もし _id が適切でなければ挿入する（安全策）
+            await col.insertOne(updateData);
+        }
     } else {
         await col.insertOne(set);
     }
@@ -65,7 +72,7 @@ const loadUsers = async () => {
 
 function isValidObjectIdString(s) {
     try {
-        return ObjectId.isValid(s);
+        return ObjectId.isValid(String(s));
     } catch {
         return false;
     }
@@ -82,7 +89,7 @@ const generatePage = (user, content) => `
         <style>
             .ca { background-color: #d4edda; color: #155724; font-weight: bold; }
             .wa { background-color: #f8d7da; color: #721c24; }
-            .status-box { display: inline-block; width: 40px; height: 40px; line-height: 40px; 
+            .status-box { display: inline-block; width: 80px; height: 40px; line-height: 40px; 
                           text-align: center; border: 1px solid #ccc; margin: 4px; border-radius: 6px; }
             .progress-bar { background: #eee; height: 20px; border-radius: 10px; margin: 10px 0; overflow: hidden; }
             .progress-fill { background: #28a745; height: 100%; border-radius: 10px; transition: width 0.5s; }
@@ -101,7 +108,7 @@ const generatePage = (user, content) => `
 
 // simple HTML escape
 function escapeHtml(s = '') {
-    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
 }
 
 // --- 認証（簡易） ---
@@ -147,8 +154,7 @@ app.get('/', async (req, res) => {
     if (!username) return res.redirect('/login');
 
     const sets = await loadSets();
-    const users = await loadUsers();
-    const user = users.find(u => u.username === username);
+    const user = await db.collection('users').findOne({ username }); // fresh
     if (!user) {
         // safety: create user doc and reload
         await db.collection('users').updateOne({ username }, { $setOnInsert: { username, submissions: [] } }, { upsert: true });
@@ -190,12 +196,14 @@ app.get('/set/:index', async (req, res) => {
     let content = `<h2>${escapeHtml(set.title)}</h2><div style="display: flex; flex-wrap: wrap;">`;
     
     (set.problems || []).forEach(prob => {
+        // 表示は label を優先、なければ id
+        const displayLabel = String(prob.label || prob.id || '');
         const sub = (user && user.submissions || []).find(s => s.setId === String(set._id) && s.probId == prob.id);
-        const resultClass = sub ? sub.result.toLowerCase() : '';
-        const resultLabel = sub ? sub.result : prob.id;
+        const resultClass = sub ? (sub.result === 'CA' ? 'ca' : 'wa') : '';
+        const resultLabel = sub ? sub.result : displayLabel;
 
         content += `
-            <div class="status-box ${resultClass}" onclick="location.href='/submit/${idx}/${prob.id}'" style="cursor:pointer">
+            <div class="status-box ${resultClass}" onclick="location.href='/submit/${idx}/${encodeURIComponent(prob.id)}'" style="cursor:pointer" title="${escapeHtml(displayLabel)}">
                 ${escapeHtml(resultLabel)}
             </div>
         `;
@@ -215,11 +223,11 @@ app.get('/submit/:setIdx/:probId', async (req, res) => {
     const idx = Number(req.params.setIdx);
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
-    const problem = (set.problems || []).find(p => p.id == req.params.probId);
+    const problem = (set.problems || []).find(p => String(p.id) === String(req.params.probId));
     if (!problem) return res.status(404).send(generatePage(null, `<p>問題が見つかりません。</p>`));
 
     res.send(generatePage({username}, `
-        <h3>${escapeHtml(set.title)} - 問${escapeHtml(problem.id)}</h3>
+        <h3>${escapeHtml(set.title)} - ${escapeHtml(String(problem.label || problem.id))}</h3>
         <form method="POST">
             <input type="text" name="answer" placeholder="答えを入力" autofocus required>
             <button type="submit">判定！</button>
@@ -241,7 +249,7 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
     const idx = Number(setIdx);
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
-    const problem = (set.problems || []).find(p => p.id == probId);
+    const problem = (set.problems || []).find(p => String(p.id) === String(probId));
     if (!problem) return res.status(404).send(generatePage(null, `<p>問題が見つかりません。</p>`));
 
     // ノーマライズ関数: 文字列比較の前に数値かどうかをチェックして数値比較をする
@@ -255,7 +263,6 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
       const a = Number(aStr);
       const b = Number(bStr);
       if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-      // 許容誤差（浮動小数点の比較）: 必要に応じて調整
       const EPS = 1e-9;
       return Math.abs(a - b) <= EPS;
     };
@@ -288,18 +295,19 @@ app.post('/submit/:setIdx/:probId', async (req, res) => {
     const setIdStr = String(set._id);
     await col.updateOne(
       { username },
-      { $pull: { submissions: { setId: setIdStr, probId: probId } } }
+      { $pull: { submissions: { setId: setIdStr, probId: String(probId) } } }
     );
     await col.updateOne(
       { username },
-      { $push: { submissions: { setId: setIdStr, probId: probId, result, answer: String(rawAnswer), date: new Date() } } }
+      { $push: { submissions: { setId: setIdStr, probId: String(probId), result, answer: String(rawAnswer), date: new Date() } } }
     );
 
+    // CA/WA ページでは正答を表示しない（ユーザーの要望）
     const color = result === 'CA' ? 'green' : 'red';
     res.send(generatePage({username}, `
         <h1 style="color: ${color}">${result}</h1>
-        <p>回答: ${escapeHtml(rawAnswer)}</p>
-        <p>正解: ${escapeHtml(expected || '(未設定)')}</p>
+        <p>あなたの回答: ${escapeHtml(rawAnswer)}</p>
+        <p>（正答は表示されません）</p>
         <a href="/set/${idx}">問題一覧に戻る</a>
     `));
   } catch (err) {
@@ -335,7 +343,8 @@ app.post('/admin/add-set', async (req, res) => {
     const count = Math.max(1, Number(req.body.count) || 0);
     const problems = [];
     for (let i = 1; i <= count; i++) {
-        problems.push({ id: i.toString(), correctAnswer: "" });
+        // id は内部識別用の連番文字列、label は表示名（後で編集可能）
+        problems.push({ id: i.toString(), label: `問${i}`, correctAnswer: "" });
     }
     await saveSet({ title, problems });
     res.redirect('/admin');
@@ -348,11 +357,20 @@ app.get('/admin/edit/:index', async (req, res) => {
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     let content = `<h2>${escapeHtml(set.title)} の正解設定</h2><form method="POST">`;
-(set.problems || []).forEach((p, i) => {
-    // 明示的に String() で変換してから escapeHtml に渡す（null/undefined 対策）
-    const val = escapeHtml(String(p.correctAnswer || ''));
-    content += `<div>問${escapeHtml(p.id)}: <input type="text" name="ans_${i}" value="${val}" placeholder="例: -1, 0.5, 記述式 など（任意）"></div>`;
-});
+
+    (set.problems || []).forEach((p, i) => {
+        const labelVal = escapeHtml(String(p.label || p.id || ''));
+        const ansVal = escapeHtml(String(p.correctAnswer || ''));
+        content += `
+          <div style="margin-bottom:8px;">
+            <label>問ID: <strong>${escapeHtml(String(p.id))}</strong></label><br>
+            表示名: <input type="text" name="label_${i}" value="${labelVal}" placeholder="例: 基本例題5(2)">
+            正解: <input type="text" name="ans_${i}" value="${ansVal}" placeholder="例: -1, 0.5, 答えの記述">
+          </div>
+        `;
+    });
+    // 設定ボタンを追加
+    content += `<button type="submit">設定を保存</button></form><p><a href="/admin">戻る</a></p>`;
     res.send(generatePage(null, content));
 });
 
@@ -362,6 +380,7 @@ app.post('/admin/edit/:index', async (req, res) => {
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     (set.problems || []).forEach((p, i) => {
+        p.label = req.body[`label_${i}`] || p.label || String(p.id);
         p.correctAnswer = req.body[`ans_${i}`] || "";
     });
     await saveSet(set);
