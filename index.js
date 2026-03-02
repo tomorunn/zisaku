@@ -348,10 +348,11 @@ app.get('/admin/edit/:index', async (req, res) => {
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     let content = `<h2>${escapeHtml(set.title)} の正解設定</h2><form method="POST">`;
-    (set.problems || []).forEach((p, i) => {
-        content += `<div>問${escapeHtml(p.id)}: <input type="text" name="ans_${i}" value="${escapeHtml(p.correctAnswer || '')}"></div>`;
-    });
-    content += `<button type="submit">保存</button></form><p><a href="/admin">戻る</a></p>`;
+(set.problems || []).forEach((p, i) => {
+    // 明示的に String() で変換してから escapeHtml に渡す（null/undefined 対策）
+    const val = escapeHtml(String(p.correctAnswer || ''));
+    content += `<div>問${escapeHtml(p.id)}: <input type="text" name="ans_${i}" value="${val}" placeholder="例: -1, 0.5, 記述式 など（任意）"></div>`;
+});
     res.send(generatePage(null, content));
 });
 
