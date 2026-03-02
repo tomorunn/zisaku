@@ -24,41 +24,35 @@ let db;
 async function connectDB() {
     if (db) return db;
     await client.connect();
-    db = client.db('study_app'); // データベース名
-    // ensure indexes (optional)
+    db = client.db('study_app');
     await db.collection('users').createIndex({ username: 1 }, { unique: true }).catch(()=>{});
     return db;
 }
 
-// 既存の app.use(async (req,res,next) => { ... }) の catch を次に置き換え
 app.use(async (req, res, next) => {
   try { await connectDB(); next(); }
   catch (err) {
     console.error("=== DB接続エラーの詳細 ===");
-    console.error(err); // ← ここでエラー内容をコンソールに出力します
-    res.status(503).send("DB接続エラー (詳細はサーバーコンソールを確認してください)");
+    console.error(err);
+    res.status(503).send("DB接続エラーが発生しました。");
   }
 });
 
 // --- データ操作関数 ---
 const loadSets = async () => {
     const col = db.collection('problem_sets');
-    const sets = await col.find({}).toArray();
-    // 注意: _id は ObjectId のままにしておく
-    return sets;
+    return await col.find({}).toArray();
 };
 
 const saveSet = async (set) => {
     const col = db.collection('problem_sets');
     if (set._id) {
-        // 正しく ObjectId に変換して更新する
         const idStr = typeof set._id === 'string' ? set._id : String(set._id);
         const oid = ObjectId.isValid(idStr) ? new ObjectId(idStr) : null;
         const { _id, ...updateData } = set;
         if (oid) {
             await col.updateOne({ _id: oid }, { $set: updateData });
         } else {
-            // もし _id が適切でなければ挿入する（安全策）
             await col.insertOne(updateData);
         }
     } else {
@@ -66,81 +60,58 @@ const saveSet = async (set) => {
     }
 };
 
-const loadUsers = async () => {
-    return await db.collection('users').find({}).toArray();
-};
-
-function isValidObjectIdString(s) {
-    try {
-        return ObjectId.isValid(String(s));
-    } catch {
-        return false;
-    }
-}
-
 // --- HTML生成（共通パーツ） ---
 const generatePage = (user, content) => `
     <!DOCTYPE html>
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Study Gamification</title>
         <link rel="stylesheet" href="/style.css">
-        <style>
-            .ca { background-color: #d4edda; color: #155724; font-weight: bold; }
-            .wa { background-color: #f8d7da; color: #721c24; }
-            .status-box { display: inline-block; width: 80px; height: 40px; line-height: 40px; 
-                          text-align: center; border: 1px solid #ccc; margin: 4px; border-radius: 6px; }
-            .progress-bar { background: #eee; height: 20px; border-radius: 10px; margin: 10px 0; overflow: hidden; }
-            .progress-fill { background: #28a745; height: 100%; border-radius: 10px; transition: width 0.5s; }
-            nav { margin-bottom: 10px; }
-        </style>
     </head>
     <body>
         <nav>
-            <a href="/">HOME</a> | <a href="/admin">解答設定</a> |
-            ${user ? `<span>Hi, ${escapeHtml(user.username)}</span> <a href="/logout">Logout</a>` : '<a href="/login">Login</a>'}
+            <div>
+                <a href="/">HOME</a>
+                <a href="/admin">解答設定</a>
+            </div>
+            <div>
+                ${user ? `<span>Hi, <strong>${escapeHtml(user.username)}</strong></span> <a href="/logout" style="margin-left:15px; font-size:0.8rem; color:#888;">Logout</a>` : '<a href="/login">Login</a>'}
+            </div>
         </nav>
         <main>${content}</main>
     </body>
     </html>
 `;
 
-// simple HTML escape
 function escapeHtml(s = '') {
     return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
 }
 
-// --- 認証（簡易） ---
-// GET /login
+// --- 認証 ---
 app.get('/login', (req, res) => {
     const content = `
-        <h2>ログイン</h2>
-        <form method="POST" action="/login">
-            <input name="username" placeholder="ユーザー名" required>
-            <button type="submit">ログイン</button>
-        </form>
+        <div class="set-card" style="max-width:400px; margin: 40px auto; text-align:center;">
+            <h2>ログイン</h2>
+            <form method="POST" action="/login">
+                <input name="username" placeholder="ユーザー名を入力" required autofocus>
+                <button type="submit" style="width:100%; margin-top:10px;">学習を開始する</button>
+            </form>
+        </div>
     `;
     res.send(generatePage(null, content));
 });
 
-// POST /login
 app.post('/login', async (req, res) => {
     const username = (req.body.username || '').trim();
     if (!username) return res.redirect('/login');
-
     const col = db.collection('users');
-    // create user if not exists
-    await col.updateOne(
-        { username },
-        { $setOnInsert: { username, submissions: [] } },
-        { upsert: true }
-    );
+    await col.updateOne({ username }, { $setOnInsert: { username, submissions: [] } }, { upsert: true });
     res.cookie('username', username, { httpOnly: true });
     res.redirect('/');
 });
 
-// GET /logout
 app.get('/logout', (req, res) => {
     res.clearCookie('username');
     res.redirect('/login');
@@ -148,41 +119,40 @@ app.get('/logout', (req, res) => {
 
 // --- ルート設定 ---
 
-// 1. 問題集一覧・進捗表示
 app.get('/', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
 
     const sets = await loadSets();
-    const user = await db.collection('users').findOne({ username }); // fresh
+    let user = await db.collection('users').findOne({ username });
     if (!user) {
-        // safety: create user doc and reload
         await db.collection('users').updateOne({ username }, { $setOnInsert: { username, submissions: [] } }, { upsert: true });
+        user = await db.collection('users').findOne({ username });
     }
 
-    const curUser = await db.collection('users').findOne({ username }); // fresh
     let content = `<h2>問題集一覧</h2>`;
     sets.forEach((set, idx) => {
         const setIdStr = String(set._id);
         const solvedCount = (set.problems || []).filter(p => 
-            (curUser.submissions || []).find(s => s.setId === setIdStr && s.probId == p.id && s.result === 'CA')
+            (user.submissions || []).find(s => s.setId === setIdStr && s.probId == p.id && s.result === 'CA')
         ).length;
         const total = set.problems ? set.problems.length : 0;
         const progress = total > 0 ? (solvedCount / total) * 100 : 0;
 
         content += `
-            <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px;">
-                <h3>${escapeHtml(set.title || `問題集 ${idx}`)}</h3>
-                <div class="progress-bar"><div class="progress-fill" style="width: ${Math.round(progress)}%"></div></div>
-                <p>進捗: ${solvedCount} / ${total} ( ${Math.round(progress)}% )</p>
-                <a href="/set/${idx}">問題を解く</a>
+            <div class="set-card">
+                <h3 style="margin-top:0;">${escapeHtml(set.title || `問題集 ${idx}`)}</h3>
+                <div class="progress-container">
+                    <div class="progress-bar"><div class="progress-fill" style="width: ${Math.round(progress)}%"></div></div>
+                    <p style="font-size: 0.9rem; margin: 5px 0;">進捗: <strong>${solvedCount}</strong> / ${total} (${Math.round(progress)}%)</p>
+                </div>
+                <a href="/set/${idx}"><button>問題を解く</button></a>
             </div>
         `;
     });
-    res.send(generatePage(curUser, content));
+    res.send(generatePage(user, content));
 });
 
-// 2. 問題回答ページ
 app.get('/set/:index', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
@@ -193,151 +163,114 @@ app.get('/set/:index', async (req, res) => {
     const set = sets[idx];
     const user = await db.collection('users').findOne({ username });
 
-    let content = `<h2>${escapeHtml(set.title)}</h2><div style="display: flex; flex-wrap: wrap;">`;
-    
+    let content = `<h2>${escapeHtml(set.title)}</h2><div class="problem-grid">`;
     (set.problems || []).forEach(prob => {
-        // 表示は label を優先、なければ id
         const displayLabel = String(prob.label || prob.id || '');
         const sub = (user && user.submissions || []).find(s => s.setId === String(set._id) && s.probId == prob.id);
-        // 背景色で判定を示す: CA -> 緑 (class "ca"), WA -> 赤 (class "wa")
         const resultClass = sub ? (sub.result === 'CA' ? 'ca' : 'wa') : '';
 
         content += `
-            <div class="status-box ${resultClass}" onclick="location.href='/submit/${idx}/${encodeURIComponent(prob.id)}'" style="cursor:pointer" title="${escapeHtml(displayLabel)}">
+            <div class="status-box ${resultClass}" onclick="location.href='/submit/${idx}/${encodeURIComponent(prob.id)}'" title="${escapeHtml(displayLabel)}">
                 ${escapeHtml(displayLabel)}
             </div>
         `;
     });
 
-    content += `</div><p><a href="/">戻る</a></p>`;
+    content += `</div><p style="text-align:center;"><a href="/">← 一覧に戻る</a></p>`;
     res.send(generatePage(user, content));
 });
 
-// 3. 判定ロジック (CA/WA)
-// GET: 回答入力フォーム
 app.get('/submit/:setIdx/:probId', async (req, res) => {
     const username = req.cookies.username;
     if (!username) return res.redirect('/login');
 
     const sets = await loadSets();
     const idx = Number(req.params.setIdx);
-    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     const problem = (set.problems || []).find(p => String(p.id) === String(req.params.probId));
     if (!problem) return res.status(404).send(generatePage(null, `<p>問題が見つかりません。</p>`));
 
     res.send(generatePage({username}, `
-        <h3>${escapeHtml(set.title)} - ${escapeHtml(String(problem.label || problem.id))}</h3>
-        <form method="POST">
-            <input type="text" name="answer" placeholder="答えを入力" autofocus required>
-            <button type="submit">判定！</button>
-        </form>
-        <p><a href="/set/${idx}">戻る</a></p>
+        <div class="set-card" style="text-align:center;">
+            <h3>${escapeHtml(set.title)}</h3>
+            <p style="font-size:1.5rem; font-weight:bold;">${escapeHtml(String(problem.label || problem.id))}</p>
+            <form method="POST">
+                <input type="text" name="answer" placeholder="答えを入力" autofocus required style="text-align:center; font-size:1.2rem;">
+                <button type="submit" style="width:100%; height:50px; font-size:1.2rem; margin-top:10px;">判定する</button>
+            </form>
+            <p style="margin-top:20px;"><a href="/set/${idx}">問題を解き直す</a></p>
+        </div>
     `));
 });
 
-// POST: 判定処理（堅牢版）
 app.post('/submit/:setIdx/:probId', async (req, res) => {
   try {
     const username = req.cookies.username;
-    if (!username) return res.redirect('/login');
-
     const { setIdx, probId } = req.params;
     const rawAnswer = (req.body.answer || '').toString();
-
     const sets = await loadSets();
     const idx = Number(setIdx);
-    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     const problem = (set.problems || []).find(p => String(p.id) === String(probId));
-    if (!problem) return res.status(404).send(generatePage(null, `<p>問題が見つかりません。</p>`));
 
-    // ノーマライズ関数: 文字列比較の前に数値かどうかをチェックして数値比較をする
-    const normalizeStr = s => (s || '').toString().trim();
-    const isNumericString = s => {
-      // 整数、小数、指数表記、先頭の +/- を許可
-      return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(String(s).trim());
-    };
-
+    const isNumericString = s => /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(String(s).trim());
     const numericEqual = (aStr, bStr) => {
-      const a = Number(aStr);
-      const b = Number(bStr);
+      const a = Number(aStr), b = Number(bStr);
       if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-      // 有効数字を気にしない比較: 絶対誤差と相対誤差の両方で判定する
-      const absEPS = 1e-9; // 絶対誤差の下限
-      const relEPS = 1e-6; // 相対誤差の許容割合（必要に応じて調整してください）
-      const tol = Math.max(absEPS, relEPS * Math.max(Math.abs(a), Math.abs(b)));
-      return Math.abs(a - b) <= tol;
+      return Math.abs(a - b) <= Math.max(1e-9, 1e-6 * Math.max(Math.abs(a), Math.abs(b)));
     };
 
-    const normalizeLower = s => normalizeStr(s).toLowerCase();
-
-    // 判定ロジック: 両方が「数値らしい」なら数値比較、それ以外は小文字の文字列比較
     let isCorrect = false;
     const expected = problem.correctAnswer || "";
-    const given = rawAnswer;
-
-    if (isNumericString(expected) && isNumericString(given)) {
-      isCorrect = numericEqual(expected, given);
+    if (isNumericString(expected) && isNumericString(rawAnswer)) {
+      isCorrect = numericEqual(expected, rawAnswer);
     } else {
-      // 非数値は trim + lowercase 比較（空白や大文字小文字を無視）
-      isCorrect = normalizeLower(expected) === normalizeLower(given);
+      isCorrect = expected.toString().trim().toLowerCase() === rawAnswer.toString().trim().toLowerCase();
     }
 
     const result = isCorrect ? 'CA' : 'WA';
-    const col = db.collection('users');
-
-    // ensure user exists
-    await col.updateOne(
-      { username },
-      { $setOnInsert: { username, submissions: [] } },
-      { upsert: true }
-    );
-
-    // remove old submission for same problem & set, then push new (and store rawAnswer for debugging)
     const setIdStr = String(set._id);
-    await col.updateOne(
-      { username },
-      { $pull: { submissions: { setId: setIdStr, probId: String(probId) } } }
-    );
-    await col.updateOne(
-      { username },
-      { $push: { submissions: { setId: setIdStr, probId: String(probId), result, answer: String(rawAnswer), date: new Date() } } }
-    );
+    await db.collection('users').updateOne({ username }, { $pull: { submissions: { setId: setIdStr, probId: String(probId) } } });
+    await db.collection('users').updateOne({ username }, { $push: { submissions: { setId: setIdStr, probId: String(probId), result, answer: String(rawAnswer), date: new Date() } } });
 
-    // CA/WA ページでは正答を表示しない（ユーザーの要望）
-    const color = result === 'CA' ? 'green' : 'red';
+    const color = isCorrect ? 'var(--success)' : 'var(--error)';
     res.send(generatePage({username}, `
-        <h1 style="color: ${color}">${result}</h1>
-        <p>あなたの回答: ${escapeHtml(rawAnswer)}</p>
-        <p>（正答は表示されません）</p>
-        <a href="/set/${idx}">問題一覧に戻る</a>
+        <div class="set-card" style="text-align: center; padding: 3rem 1rem;">
+            <div class="result-display" style="color: ${color}">${result}</div>
+            <p style="font-size:1.2rem;">あなたの回答: <strong>${escapeHtml(rawAnswer)}</strong></p>
+            <p style="color:#888;">正解は記録されました。</p>
+            <div style="margin-top:30px;">
+                <a href="/set/${idx}"><button>問題一覧に戻る</button></a>
+            </div>
+        </div>
     `));
   } catch (err) {
-    console.error('POST /submit error:', err);
-    res.status(500).send(generatePage(null, `<p>内部エラーが発生しました。サーバーログを確認してください。</p>`));
+    res.status(500).send("エラーが発生しました。");
   }
 });
 
-
-// 4. 解答設定ページ（管理者向け、簡易）
+// --- 管理画面 ---
 app.get('/admin', async (req, res) => {
     const sets = await loadSets();
-    let content = `<h2>解答設定・問題集追加</h2>
-        <form action="/admin/add-set" method="POST">
-            <input type="text" name="title" placeholder="問題集タイトル (例: 青チャート数IA)" required>
-            <input type="number" name="count" placeholder="問題数" min="1" required>
-            <button type="submit">新規作成</button>
-        </form>
+    let content = `
+        <h2>管理者設定</h2>
+        <div class="set-card">
+            <h3>新規問題集の追加</h3>
+            <form action="/admin/add-set" method="POST">
+                <input type="text" name="title" placeholder="問題集の名前 (例: 数学チャート)" required>
+                <input type="number" name="count" placeholder="初期の問題数" min="1" required>
+                <button type="submit">作成</button>
+            </form>
+        </div>
         <hr>
-        <h3>既存の問題集の正解を設定</h3>
-        <ul>
+        <h3>作成済みの問題集</h3>
     `;
-    
     sets.forEach((set, idx) => {
-        content += `<li>${escapeHtml(set.title || `問題集 ${idx}`)} <a href="/admin/edit/${idx}">正解を編集する</a></li>`;
+        content += `<div class="admin-row">
+            <strong>${escapeHtml(set.title || `問題集 ${idx}`)}</strong> 
+            <a href="/admin/edit/${idx}" style="float:right;">正解を編集 →</a>
+        </div>`;
     });
-    content += `</ul>`;
     res.send(generatePage(null, content));
 });
 
@@ -346,93 +279,43 @@ app.post('/admin/add-set', async (req, res) => {
     const count = Math.max(1, Number(req.body.count) || 0);
     const problems = [];
     for (let i = 1; i <= count; i++) {
-        // id は内部識別用の連番文字列、label は表示名（後で編集可能）
         problems.push({ id: i.toString(), label: `問${i}`, correctAnswer: "" });
     }
     await saveSet({ title, problems });
     res.redirect('/admin');
 });
 
-// 正解編集ページ
 app.get('/admin/edit/:index', async (req, res) => {
     const sets = await loadSets();
     const idx = Number(req.params.index);
-    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
-    let content = `<h2>${escapeHtml(set.title)} の正解設定・編集</h2>`;
-
-    // 既存問題一覧と編集フォーム
+    let content = `<h2>${escapeHtml(set.title)} の編集</h2>`;
     content += `<form method="POST" action="/admin/edit/${idx}">`;
     (set.problems || []).forEach((p, i) => {
-        const labelVal = escapeHtml(String(p.label || p.id || ''));
-        const ansVal = escapeHtml(String(p.correctAnswer || ''));
         content += `
-          <div style="margin-bottom:8px;">
-            <label>問ID: <strong>${escapeHtml(String(p.id))}</strong></label><br>
-            表示名: <input type="text" name="label_${i}" value="${labelVal}" placeholder="例: 基本例題5(2)">
-            正解: <input type="text" name="ans_${i}" value="${ansVal}" placeholder="例: -1, 0.5, 答えの記述">
+          <div class="admin-row">
+            ID: ${p.id} | 
+            表示名: <input type="text" name="label_${i}" value="${escapeHtml(p.label)}" style="width:120px; display:inline;">
+            正解: <input type="text" name="ans_${i}" value="${escapeHtml(p.correctAnswer)}" style="width:180px; display:inline;">
           </div>
         `;
     });
-    content += `<button type="submit">設定を保存</button></form>`;
-
-    // 問題追加フォーム（後から追加可能）
-    content += `
-      <hr>
-      <h3>問題を追加</h3>
-      <form method="POST" action="/admin/add-problem/${idx}">
-        <label>追加する問題数: <input type="number" name="addCount" value="1" min="1" required></label>
-        <button type="submit">問題を追加</button>
-      </form>
-      <p><a href="/admin">戻る</a></p>
-    `;
-
+    content += `<button type="submit" style="width:100%; margin-top:20px;">変更を保存</button></form>
+    <p><a href="/admin">戻る</a></p>`;
     res.send(generatePage(null, content));
-});
-
-// 問題追加処理: /admin/add-problem/:index
-app.post('/admin/add-problem/:index', async (req, res) => {
-    const sets = await loadSets();
-    const idx = Number(req.params.index);
-    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
-    const set = sets[idx];
-
-    const addCount = Math.max(1, Number(req.body.addCount) || 0);
-    // existing IDs may be numeric strings or arbitrary; try to extend numeric sequence if possible
-    const existingIds = (set.problems || []).map(p => String(p.id));
-    // find max numeric id
-    const numericIds = existingIds.map(id => { const n = Number(id); return Number.isFinite(n) && Number.isInteger(n) ? n : null; }).filter(x => x !== null);
-    let nextNum = 1;
-    if (numericIds.length > 0) {
-        nextNum = Math.max(...numericIds) + 1;
-    } else {
-        nextNum = (set.problems || []).length + 1;
-    }
-
-    for (let i = 0; i < addCount; i++) {
-        const newId = String(nextNum + i);
-        const newLabel = `問${newId}`;
-        (set.problems = set.problems || []).push({ id: newId, label: newLabel, correctAnswer: "" });
-    }
-
-    await saveSet(set);
-    // 編集画面に戻る
-    res.redirect(`/admin/edit/${idx}`);
 });
 
 app.post('/admin/edit/:index', async (req, res) => {
     const sets = await loadSets();
     const idx = Number(req.params.index);
-    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
     (set.problems || []).forEach((p, i) => {
-        p.label = req.body[`label_${i}`] || p.label || String(p.id);
+        p.label = req.body[`label_${i}`] || p.label;
         p.correctAnswer = req.body[`ans_${i}`] || "";
     });
     await saveSet(set);
     res.redirect('/admin');
 });
 
-// --- サーバー起動 ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server: http://localhost:${PORT}`));
