@@ -356,8 +356,10 @@ app.get('/admin/edit/:index', async (req, res) => {
     const idx = Number(req.params.index);
     if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
     const set = sets[idx];
-    let content = `<h2>${escapeHtml(set.title)} の正解設定</h2><form method="POST">`;
+    let content = `<h2>${escapeHtml(set.title)} の正解設定・編集</h2>`;
 
+    // 既存問題一覧と編集フォーム
+    content += `<form method="POST" action="/admin/edit/${idx}">`;
     (set.problems || []).forEach((p, i) => {
         const labelVal = escapeHtml(String(p.label || p.id || ''));
         const ansVal = escapeHtml(String(p.correctAnswer || ''));
@@ -369,9 +371,50 @@ app.get('/admin/edit/:index', async (req, res) => {
           </div>
         `;
     });
-    // 設定ボタンを追加
-    content += `<button type="submit">設定を保存</button></form><p><a href="/admin">戻る</a></p>`;
+    content += `<button type="submit">設定を保存</button></form>`;
+
+    // 問題追加フォーム（後から追加可能）
+    content += `
+      <hr>
+      <h3>問題を追加</h3>
+      <form method="POST" action="/admin/add-problem/${idx}">
+        <label>追加する問題数: <input type="number" name="addCount" value="1" min="1" required></label>
+        <button type="submit">問題を追加</button>
+      </form>
+      <p><a href="/admin">戻る</a></p>
+    `;
+
     res.send(generatePage(null, content));
+});
+
+// 問題追加処理: /admin/add-problem/:index
+app.post('/admin/add-problem/:index', async (req, res) => {
+    const sets = await loadSets();
+    const idx = Number(req.params.index);
+    if (Number.isNaN(idx) || idx < 0 || idx >= sets.length) return res.status(404).send(generatePage(null, `<p>問題集が見つかりません。</p>`));
+    const set = sets[idx];
+
+    const addCount = Math.max(1, Number(req.body.addCount) || 0);
+    // existing IDs may be numeric strings or arbitrary; try to extend numeric sequence if possible
+    const existingIds = (set.problems || []).map(p => String(p.id));
+    // find max numeric id
+    const numericIds = existingIds.map(id => { const n = Number(id); return Number.isFinite(n) && Number.isInteger(n) ? n : null; }).filter(x => x !== null);
+    let nextNum = 1;
+    if (numericIds.length > 0) {
+        nextNum = Math.max(...numericIds) + 1;
+    } else {
+        nextNum = (set.problems || []).length + 1;
+    }
+
+    for (let i = 0; i < addCount; i++) {
+        const newId = String(nextNum + i);
+        const newLabel = `問${newId}`;
+        (set.problems = set.problems || []).push({ id: newId, label: newLabel, correctAnswer: "" });
+    }
+
+    await saveSet(set);
+    // 編集画面に戻る
+    res.redirect(`/admin/edit/${idx}`);
 });
 
 app.post('/admin/edit/:index', async (req, res) => {
